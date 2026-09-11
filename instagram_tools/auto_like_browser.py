@@ -407,7 +407,7 @@ class ChromeBrowserSession:
 
     def following_feed(self) -> PlaywrightFollowingFeed:
         if not self.context:
-            raise BrowserClosedError("Chrome이 실행되지 않았습니다.")
+            raise BrowserClosedError("Chrome이 실행되지 않았습니다. 다시 시작해 주세요.")
         return PlaywrightFollowingFeed(self)
 
     def close(self) -> None:
@@ -821,7 +821,14 @@ class PlaywrightFeedPost:
     def __init__(self, session: ChromeBrowserSession, article: Locator):
         self.session = session
         self.article = article
-        self._key: str | None = None
+        # ``locator.nth(index)`` is live: if Instagram inserts/removes an article
+        # while we wait or scroll a previous post into view, that same locator can
+        # silently start pointing at a neighboring post. Snapshot the permalink
+        # immediately, then re-bind all later reads/clicks to the article that
+        # contains that stable permalink instead of to a mutable list position.
+        self._key: str | None = self._extract_key()
+        if self._key:
+            self.article = self._stable_article_locator(self._key)
         self._username: str | None = None
         self._exclusion_reason: str | None | object = _UNSET
 
@@ -884,6 +891,11 @@ class PlaywrightFeedPost:
             except Exception as exc:
                 self.session.raise_browser_error(exc)
         return False
+
+    def _stable_article_locator(self, key: str) -> Locator:
+        page = self.session._require_page()
+        permalink = page.locator(f'a[href*="{key}"]')
+        return page.locator("article").filter(has=permalink).first
 
     def _extract_key(self) -> str:
         try:
