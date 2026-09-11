@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "instagram-tools-desktop"
+version = "0.1.0"
+description = "Local desktop companion for verifiable Instagram account management"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{name = "Daehwi"}]
+dependencies = [
+    "playwright==1.62.0",
+]
+
+[project.scripts]
+instagram-tools = "instagram_tools.__main__:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["instagram_tools*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]

@@ -1,0 +1,177 @@
+name: Instagram Tools
+
+on:
+  workflow_dispatch: {}
+  pull_request:
+  push:
+    branches: ["main"]
+    tags: ["v*"]
+
+concurrency:
+  group: instagram-tools-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.13.5"
+  RUFF_VERSION: "0.16.2"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install . "ruff==${RUFF_VERSION}"
+      - name: Lint and format check
+        run: |
+          ruff check instagram_tools tests
+          ruff format --check instagram_tools tests
+      - name: Compile and public API smoke test
+        run: |
+          python -m compileall -q instagram_tools tests
+          python - <<'PY'
+          import instagram_tools
+          from instagram_tools.__main__ import main
+          from instagram_tools.app import InstagramToolsApp
+          from instagram_tools.auto_like import FollowingFeedScanner
+          from instagram_tools.friendship_browser import SharedChromeBrowserSession, VerifiedFriendshipBackend
+          from instagram_tools.non_followers import NonFollowerCleaner
+          from instagram_tools.storage import Storage
+          from instagram_tools.worker import InstagramAutomationWorker
+
+          assert instagram_tools.__version__
+          assert main
+          assert InstagramToolsApp
+          assert FollowingFeedScanner
+          assert SharedChromeBrowserSession
+          assert VerifiedFriendshipBackend
+          assert NonFollowerCleaner
+          assert Storage
+          assert InstagramAutomationWorker
+          PY
+      - name: Run desktop application tests
+        run: python -m unittest discover -v -s tests/regression -p 'test_*.py'
+      - name: Verify compact 1366x768 layout
+        run: |
+          if ! command -v xvfb-run >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y xvfb
+          fi
+          xvfb-run -a -s "-screen 0 1366x768x24" \
+            python -m tests.regression.instagram_tools_layout_smoke
+
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_name: InstagramTools-Windows
+            package_name: ""
+          - os: macos-15
+            artifact_name: InstagramTools-macOS-Apple-Silicon
+            package_name: InstagramTools-macOS-Apple-Silicon.dmg
+          - os: macos-15-intel
+            artifact_name: InstagramTools-macOS-Intel
+            package_name: InstagramTools-macOS-Intel.dmg
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install . pyinstaller
+      - name: Verify Playwright driver package
+        shell: bash
+        run: |
+          python - <<'PY'
+          from playwright.sync_api import sync_playwright
+          with sync_playwright() as playwright:
+              assert playwright.chromium
+          PY
+      - name: Build unified desktop application
+        run: >-
+          pyinstaller --noconfirm --clean --windowed --onedir
+          --name InstagramTools --paths .
+          --collect-all playwright --copy-metadata playwright
+          instagram_tools/__main__.py
+      - name: Package macOS disk image with retry
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf package
+          mkdir -p package
+          ditto dist/InstagramTools.app package/InstagramTools.app
+          ln -s /Applications package/Applications
+          for attempt in 1 2 3; do
+            rm -f "${{ matrix.package_name }}"
+            if hdiutil create -volname "InstagramTools" -srcfolder package -ov -format UDZO "${{ matrix.package_name }}"; then
+              hdiutil verify "${{ matrix.package_name }}"
+              exit 0
+            fi
+            hdiutil detach "/Volumes/InstagramTools" -force || true
+            sleep $((attempt * 5))
+          done
+          exit 1
+      - name: Upload Windows application directory
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/InstagramTools
+          overwrite: true
+          if-no-files-found: error
+      - name: Upload macOS disk image
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.package_name }}
+          compression-level: 0
+          overwrite: true
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download platform artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: release-artifacts
+      - name: Prepare release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir release-files
+          (cd release-artifacts/InstagramTools-Windows && zip -r "$GITHUB_WORKSPACE/release-files/InstagramTools-Windows.zip" .)
+          cp release-artifacts/InstagramTools-macOS-Apple-Silicon/*.dmg release-files/
+          cp release-artifacts/InstagramTools-macOS-Intel/*.dmg release-files/
+          test "$(find release-files -maxdepth 1 -type f | wc -l | tr -d ' ')" -eq 3
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "${GITHUB_REF_NAME}" release-files/*
+          --repo "${GITHUB_REPOSITORY}" --generate-notes
+          --title "Instagram Tools ${GITHUB_REF_NAME}"
