@@ -188,7 +188,7 @@ CAUGHT_UP_PHRASES = (
     # Portuguese
     "você está em dia",
     "você viu tudo",
-    "você viu toutes as publicações novas",
+    "você viu todas as publicações novas",
     # Russian
     "вы всё просмотрели",
     "вы все просмотрели",
