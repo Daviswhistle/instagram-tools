@@ -188,7 +188,7 @@ CAUGHT_UP_PHRASES = (
     # Portuguese
     "você está em dia",
     "você viu tudo",
-    "você viu todas as publicações novas",
+    "você viu toutes as publicações novas",
     # Russian
     "вы всё просмотрели",
     "вы все просмотрели",
@@ -407,7 +407,7 @@ class ChromeBrowserSession:
 
     def following_feed(self) -> PlaywrightFollowingFeed:
         if not self.context:
-            raise BrowserClosedError("Chrome이 실행되지 않았습니다. 다시 시작해 주세요.")
+            raise BrowserClosedError("Chrome이 실행되지 않았습니다.")
         return PlaywrightFollowingFeed(self)
 
     def close(self) -> None:
