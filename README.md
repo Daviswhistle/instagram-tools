@@ -24,7 +24,7 @@ python -m pip install -e .
 python -m instagram_tools
 ```
 
-설치 후에는 다음 명령도 사용할 수 있습니다.
+설치 후에는 다음 명령으로 사용할 수 있습니다.
 
 ```bash
 instagram-tools
